@@ -1,0 +1,4 @@
+
+
+class Scrapbook():
+    pass
