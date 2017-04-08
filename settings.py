@@ -1,1 +1,2 @@
 SPARKPOST_API_KEY = "1b3a8429baf9f5a6b5fb656fa33884004bb76d2b"
+DOMAIN_NAME = "scrapbookit.me"
