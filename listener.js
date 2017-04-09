@@ -38,13 +38,13 @@ ref.on('child_added', snapshot => {
         if (subject.indexOf("about") != -1) {
             // subject line contains "about"
             // query data from firebase
-            queryData(subject);
+            queryData(subject, author);
         } else {
             // subject line doesn't contain "about"
             // push data into firebase
             pushData(subject, author, date, text, html);
             // craft and send response
-            sendConfirmation(author);
+            // sendConfirmation(author);
             
         }
     });
@@ -54,6 +54,7 @@ ref.on('child_added', snapshot => {
 })
 
 function pushData(subject, author, date, text, html) {
+    console.log("SUBJECT: " + subject)
     ref = firebase.database().ref(subject);
     var size = 0
     ref.on("value", function(snapshot) {
@@ -96,35 +97,57 @@ function pushData(subject, author, date, text, html) {
 
 }
 
-function queryData(subject) {
+function queryData(subject, recipient) {
     subject = subject.slice(5, subject.length).trim();
     ref = firebase.database().ref(subject)
-    var answer = "";
 
-    ref.on("value")
+    ref.once("value")
     .then(function(snapshot) {
-        var name = snapshot.child("name").val(); // {first:"Ada",last:"Lovelace"}
-        var firstName = snapshot.child("name/first").val(); // "Ada"
-        var lastName = snapshot.child("name").child("last").val(); // "Lovelace"
-        var age = snapshot.child("age").val(); // null
-    });
-    var returned_data;
-    ref.orderByChild("date").limitToFirst(2).on("value", function(snapshot) {
-        console.log(snapshot.key);
-    })
+        var size = snapshot.child('size').val();
+        var str = ""
+        for (var i = 1; i <= size; i++) {
+            var text = snapshot.child(i.toString() + "/text").val().trim();
+            var author = snapshot.child(i.toString() + "/author").val();
+            str += author + " said: " + text + "<br>"
+        }
 
+        console.log(str);
+        sendAboutEmail(recipient, str, author);
+    });
+
+    
 }
 
 function sendConfirmation(recipient) {
     sparky.transmissions.send({
         options: {
-        sandbox: true
+        sandbox: false
         },
         content: {
-        from: 'testing@sparkpostbox.com',
+        from: 'postmaster@scrapbookit.me',
         subject: 'Thank you!',
         html:'<html><body><p>Your submission has been received! \n \
                 Thanks for your contribution!</p></body></html>'
+        },
+        recipients: [
+        {address: recipient}
+        ]
+    })
+    .catch(err => {
+        console.log('something went wrong');
+        console.log(err);
+    });
+}
+
+function sendAboutEmail(recipient, text, author) {
+    sparky.transmissions.send({
+        options: {
+        sandbox: false
+        },
+        content: {
+        from: 'postmaster@scrapbookit.me',
+        subject: 'Here\'s your info!',
+        html: text
         },
         recipients: [
         {address: recipient}
