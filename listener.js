@@ -1,5 +1,6 @@
 const SparkPost = require('sparkpost')
 const firebase = require('firebase')
+
 var sparky = new SparkPost("1b3a8429baf9f5a6b5fb656fa33884004bb76d2b"); // SPARKPOST_API_KEY
 
 var config = {
@@ -12,40 +13,37 @@ var config = {
 };
 firebase.initializeApp(config);
 
-// const logger = require('./config/logger')('verbose')
-// const relayParser = require('./relay_parser')
 
-let isListening = false
-
+// event listener for new emails
 var ref = firebase.database().ref('inbound');
 ref.on('child_added', snapshot => {
-    console.log('Recieved and Processing email')
-    snapshot.forEach(item => {
-        // console.log(item.val().msys)
-        // console.log(item.val()) // prints out {relay_message: {content: ...}}
-        // console.log(item)
-        var msg1 = item.val().msys.relay_message;
-        
-        if (!msg1) {
-            return true;
-        }
-        var author = msg1.friendly_from;
-        var subject = msg1.content.subject.toLowerCase();
-        var date = new Date().toLocaleString();
-        var text = msg1.content.text;
-        var html = msg1.content.html;
 
+    snapshot.forEach(item => {
+
+        var msg = item.val().msys.relay_message;
+
+        // message was not an email
+        if (!msg) {
+            return;
+        }
+
+        var author = msg.friendly_from;
+        var subject = msg.content.subject.toLowerCase();
+        var date = new Date().toLocaleString();
+        var html = msg.content.html;
+        var raw_data = msg.content.email_rfc822;
+
+        // subject line contains "about"
         if (subject.indexOf("about") != -1) {
-            // subject line contains "about"
             // query data from firebase
+            console.log('Data requested from ' + author + ' about ' + subject);
             queryData(subject, author);
+
+        // subject line doesn't contain "about"
         } else {
-            // subject line doesn't contain "about"
             // push data into firebase
-            pushData(subject, author, date, text, html);
-            // craft and send response
-            // sendConfirmation(author);
-            
+            console.log('Saving new data from ' + author + ' about ' + subject);
+            pushData(subject, author, date, html, raw_data);
         }
     });
 
@@ -53,50 +51,67 @@ ref.on('child_added', snapshot => {
     console.log('Error getting snapshot.', err)
 })
 
-function pushData(subject, author, date, text, html) {
-    console.log("SUBJECT: " + subject)
-    ref = firebase.database().ref(subject);
-    var size = 0
-    ref.on("value", function(snapshot) {
-        if (snapshot.val() == null) {
-            return
-        }
-        size = snapshot.val().size;
-        if (typeof size == "number") {
-            return
-        }
-    })
-    console.log("SIZE: " + size)
-    if (size != 0) {
-        // exists already
+// push data to firebase
+function pushData(subject, author, date, html, raw_data) {
 
-        size = size + 1;
-        var strsize = size.toString();
-        firebase.database().ref(subject).update({size: size})
-        firebase.database().ref(subject + '/' + size).set({
-            subject: subject,
-            author: author,
-            date: date,
-            text: text,
-            html: html
-            
-        })
-        return
+    var img_data = null;
+
+    // inline image exists
+    if(html.indexOf("<img src=") != -1) {
+        img_data = getImageData(raw_data, html);
     }
-    
-    firebase.database().ref(subject).set({
-        size: 1,
-        '1': {
-            subject: subject,
-            author: author,
-            date: date,
-            text: text,
-            html: html
+
+    ref = firebase.database().ref(subject);
+    ref.once("value", function(snapshot) {
+        // event already exists, append to end
+        if (snapshot.val()) {
+          var size = snapshot.val().size + 1;
+
+          firebase.database().ref(subject).update({size: size});
+          firebase.database().ref(subject).update({last_update: date});
+          firebase.database().ref(subject + '/' + size).set({
+              author: author,
+              date: date,
+              html: html
+          });
+
+          if(img_data) {
+            firebase.database().ref(subject + "/" + size + "/image").set({
+              name: img_data[0],
+              type: img_data[1],
+              data: img_data[2]
+            });
+          }
+
+        // event doesn't exist
+        } else {
+          size = 1;
+          firebase.database().ref(subject).set({
+            date_created: date,
+            last_update: date,
+            size: size,
+            1: {
+                author: author,
+                date: date,
+                html: html
+            }
+          });
+
+          if(img_data) {
+            firebase.database().ref(subject + "/1/image").set({
+              name: img_data[0],
+              type: img_data[1],
+              data: img_data[2]
+            });
+          }
         }
-    })
+    });
+
+
 
 }
 
+// get data about specified subject and send about email
 function queryData(subject, recipient) {
     subject = subject.slice(5, subject.length).trim();
     ref = firebase.database().ref(subject)
@@ -104,38 +119,50 @@ function queryData(subject, recipient) {
     ref.once("value")
     .then(function(snapshot) {
         var size = snapshot.child('size').val();
-        if (size == null) {
-            console.log("SENDING NOT FOUND EMAIL..")
-            sendAboutNotFound(subject, recipient);
-            return
-        }
-        var str = ""
-        for (var i = 1; i <= size; i++) {
-            var text = snapshot.child(i.toString() + "/text").val().trim();
-            var author = snapshot.child(i.toString() + "/author").val();
-            str += author + " said: " + text + "<br>"
-        }
 
-        console.log(str);
-        sendAboutEmail(recipient, subject, str, author);
+        if(size) {
+          var str = ""
+          var inline_image_data = [];
+          for (var i = 1; i <= size; i++) {
+              var html = snapshot.child(i + "/html").val();
+              var author = snapshot.child(i +"/author").val();
+              var date = snapshot.child(i +"/date").val();
+
+
+              str = format1 + author + format2 + date + format3 + html + format4 + str;
+
+              if(snapshot.child(i + "/image").val()) {
+                inline_image_data.push({
+                  name: snapshot.child(i + "/image").val().name,
+                  type: snapshot.child(i + "/image").val().type,
+                  data: snapshot.child(i + "/image").val().data
+                });
+              }
+          }
+
+          console.log(str);
+
+          sendAboutEmail(recipient, str, author, subject, inline_image_data);
+
+        } else {
+          sendAboutNotFound(subject, recipient);
+        }
     });
-
-    
 }
 
 function sendConfirmation(recipient) {
     sparky.transmissions.send({
         options: {
-            sandbox: false
+        sandbox: false
         },
         content: {
-            from: 'postmaster@scrapbookit.me',
-            subject: 'Thank you!',
-            html:'<html><body><p>Your submission has been received! \n \
+        from: 'postmaster@scrapbookit.me',
+        subject: 'Thank you!',
+        html:'<html><body><p>Your submission has been received! \n \
                 Thanks for your contribution!</p></body></html>'
         },
         recipients: [
-            {address: recipient}
+        {address: recipient}
         ]
     })
     .catch(err => {
@@ -144,18 +171,20 @@ function sendConfirmation(recipient) {
     });
 }
 
-function sendAboutEmail(recipient, subject, text, author) {
+// send about email
+function sendAboutEmail(recipient, html, author, subject, inline_image_data) {
     sparky.transmissions.send({
         options: {
-            sandbox: false
+          sandbox: false
         },
         content: {
-            from: 'postmaster@scrapbookit.me',
-            subject: 'Here\'s your info about ' + subject + '!',
-            html: text
+          from: 'postmaster@scrapbookit.me',
+          subject: 'Here\'s the ' + subject + ' scrapbook!',
+          html: html,
+          inline_images: inline_image_data
         },
         recipients: [
-            {address: recipient}
+          {address: recipient}
         ]
     })
     .catch(err => {
@@ -164,6 +193,7 @@ function sendAboutEmail(recipient, subject, text, author) {
     });
 }
 
+// send subject not found email
 function sendAboutNotFound(subject, recipient) {
     sparky.transmissions.send({
         options: {
@@ -185,3 +215,34 @@ function sendAboutNotFound(subject, recipient) {
         console.log(err);
     });
 }
+
+// gets image name, type and data
+function getImageData(raw_data, html) {
+  var name, type, data;
+
+  var start_index = html.indexOf("cid:") + "cid:".length;
+  var stop_index = html.indexOf("width=");
+  name = html.substring(start_index, stop_index - 2);
+
+  start_index = raw_data.indexOf("Content-Type: image") + "Content-Type: ".length;
+  stop_index = raw_data.indexOf(";", start_index);
+  type = raw_data.substring(start_index, stop_index);
+
+  start_index = raw_data.lastIndexOf(name);
+  start_index = start_index + name.length;
+  data = raw_data.substring(start_index);
+  data = data.replace("\n", "");
+
+  return [name, type, data];
+}
+
+var format1 = `<div class="page" style="padding: 10px 5px 5px 5px; line-height: 1.5;">
+  <div class="divider" style="height: 1px; width: 100%; background-color: black;"></div>
+  <div class="author" style="color: black !important; text-decoration: none !important; font-size: larger; font-weight: bold;">`
+var format2 = `</div>
+  <div class="time" style="color: gray;">`
+var format3 = `</div>
+  <div class="content" style="margin: 5px 0px; color: black;">`
+var format4 = `
+  </div>
+</div>`
