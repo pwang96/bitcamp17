@@ -1,27 +1,3 @@
-var SparkPost = require('sparkpost');
-var sparky = new SparkPost("1b3a8429baf9f5a6b5fb656fa33884004bb76d2b"); // SPARKPOST_API_KEY
-
-var f = function(req) {
-    // get all the data from the json in the POST body
-    var msg1 = req[0].msys.relay_message;
-    var author = msg1.friendly_from;
-    var subject = msg1.content.subject;
-    var date = msg1.content.headers[4].Date;
-    var text = msg1.content.text;
-    var html = msg1.content.html;
-    
-    // differentiate between about and info
-    if (subject.indexOf("about") != -1) {
-        // subject line contains "about"
-        // query data from firebase
-    } else {
-        // subject line doesn't contain "about"
-        // push data into firebase
-    }
-};
-
-
-
 
 
 sparky.transmissions.send({
