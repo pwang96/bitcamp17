@@ -104,6 +104,11 @@ function queryData(subject, recipient) {
     ref.once("value")
     .then(function(snapshot) {
         var size = snapshot.child('size').val();
+        if (size == null) {
+            console.log("SENDING NOT FOUND EMAIL..")
+            sendAboutNotFound(subject, recipient);
+            return
+        }
         var str = ""
         for (var i = 1; i <= size; i++) {
             var text = snapshot.child(i.toString() + "/text").val().trim();
@@ -112,7 +117,7 @@ function queryData(subject, recipient) {
         }
 
         console.log(str);
-        sendAboutEmail(recipient, str, author);
+        sendAboutEmail(recipient, subject, str, author);
     });
 
     
@@ -121,16 +126,16 @@ function queryData(subject, recipient) {
 function sendConfirmation(recipient) {
     sparky.transmissions.send({
         options: {
-        sandbox: false
+            sandbox: false
         },
         content: {
-        from: 'postmaster@scrapbookit.me',
-        subject: 'Thank you!',
-        html:'<html><body><p>Your submission has been received! \n \
+            from: 'postmaster@scrapbookit.me',
+            subject: 'Thank you!',
+            html:'<html><body><p>Your submission has been received! \n \
                 Thanks for your contribution!</p></body></html>'
         },
         recipients: [
-        {address: recipient}
+            {address: recipient}
         ]
     })
     .catch(err => {
@@ -139,18 +144,40 @@ function sendConfirmation(recipient) {
     });
 }
 
-function sendAboutEmail(recipient, text, author) {
+function sendAboutEmail(recipient, subject, text, author) {
     sparky.transmissions.send({
         options: {
-        sandbox: false
+            sandbox: false
         },
         content: {
-        from: 'postmaster@scrapbookit.me',
-        subject: 'Here\'s your info!',
-        html: text
+            from: 'postmaster@scrapbookit.me',
+            subject: 'Here\'s your info about ' + subject + '!',
+            html: text
         },
         recipients: [
-        {address: recipient}
+            {address: recipient}
+        ]
+    })
+    .catch(err => {
+        console.log('something went wrong');
+        console.log(err);
+    });
+}
+
+function sendAboutNotFound(subject, recipient) {
+    sparky.transmissions.send({
+        options: {
+            sandbox: false
+        },
+        content: {
+            from: 'postmaster@scrapbookit.me',
+            subject: 'No info here...',
+            html: 'Currently, there is no information about ' + subject + ' :(. <br>\
+            Be the <strong>first</strong> one to add something! Change your subject line to \
+            just "' + subject + '"!'
+        },
+        recipients: [
+            {address: recipient}
         ]
     })
     .catch(err => {
