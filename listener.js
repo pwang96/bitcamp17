@@ -45,7 +45,13 @@ ref.on('child_added', snapshot => {
             console.log('Saving new data from ' + author + ' about ' + subject);
             pushData(subject, author, date, html, raw_data);
         }
+
+        // delete from inbound
     });
+
+    // clear inbound bin after all pending messages are handled
+    var ref = firebase.database().ref('inbound');
+    ref.set({});
 
     }, err => {
     console.log('Error getting snapshot.', err)
@@ -139,8 +145,6 @@ function queryData(subject, recipient) {
                 });
               }
           }
-
-          console.log(str);
 
           sendAboutEmail(recipient, str, author, subject, inline_image_data);
 
